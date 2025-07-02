@@ -19,6 +19,7 @@ from webdriver_manager.chrome import ChromeDriverManager
 from bs4 import BeautifulSoup
 import os
 import sys
+from datetime import datetime
 
 max_pages = 160  # 最大爬取页数，避免无限循环
 page_size = 50  # 每页数据量
@@ -172,8 +173,11 @@ def get_data(data_type):
                 'tzq': '债券型'
             }
             type_name = type_names.get(data_type, data_type)
-            date_str = datetime.now().strftime("%Y%m%d")
-            output_file = f"data/fund_ranking_{data_type}_{type_name}_{date_str}.csv"
+            # date_str = datetime.now().strftime("%Y%m%d")
+            month_str = datetime.now().strftime("%Y%m")
+            source_data_dir = f"data/raw/{month_str}"
+            os.makedirs(source_data_dir, exist_ok=True)
+            output_file = f"{source_data_dir}/fund_ranking_{data_type}_{type_name}.csv"
             df.to_csv(output_file, index=False, encoding='utf-8-sig')
             print(f"数据已保存到 {output_file}")
             

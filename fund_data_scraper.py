@@ -21,6 +21,7 @@ import os
 import sys
 
 max_pages = 160  # 最大爬取页数，避免无限循环
+page_size = 50  # 每页数据量
 
 def get_data(data_type):
     """使用Selenium模拟浏览器从东方财富网获取基金排行数据"""

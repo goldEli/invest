@@ -69,6 +69,7 @@ def get_data():
         # 存储所有页面的数据
         all_data = []
         page_num = 1
+        page_size = 50
         
         while page_num <= max_pages:
             print(f"\n正在处理第 {page_num} 页...")
@@ -121,16 +122,24 @@ def get_data():
             
             # 将当前页面数据添加到总数据中
             all_data.extend(data_rows)
+
+            # 如果当前页数据行数小于 page_size，则跳出循环
+            if len(data_rows) < page_size:
+                print("已到达最后一页")
+                break
             
             # 尝试点击下一页按钮
             try:
                 # 等待下一页按钮出现
-                next_button = wait.until(EC.element_to_be_clickable((By.XPATH, '//*[@id="pagebar"]/label[8]')))
+                # next_button = wait.until(EC.element_to_be_clickable((By.XPATH, '//*[@id="pagebar"]/label[8]')))
+                input_page = wait.until(EC.element_to_be_clickable((By.XPATH, '//*[@id="pnum"]')))
+                input_page.send_keys(page_num + 1)
+                next_button = wait.until(EC.element_to_be_clickable((By.XPATH, '//*[@id="pagebar"]/input[2]')))
                 
                 # 检查按钮是否可点击（不是最后一页）
-                if 'disabled' in next_button.get_attribute('class') or 'current' in next_button.get_attribute('class'):
-                    print("已到达最后一页")
-                    break
+                # if 'disabled' in next_button.get_attribute('class') or 'current' in next_button.get_attribute('class'):
+                #     print("已到达最后一页")
+                #     break
                 
                 # 点击下一页
                 print("点击下一页按钮...")
@@ -155,8 +164,8 @@ def get_data():
             print("数据解析完成，前5行数据:")
             print(df.head())
             
-            # 保存数据到CSV文件
-            output_file = "fund_ranking_data.csv"
+            # 保存数据到CSV文件, 存入data目录
+            output_file = "data/fund_ranking_data.csv"
             df.to_csv(output_file, index=False, encoding='utf-8-sig')
             print(f"数据已保存到 {output_file}")
             
@@ -178,39 +187,55 @@ def screen_bond_funds():
     """获取并筛选债券基金前10名"""
     try:
         # 获取全市场债券基金数据
-        df_all = ak.fund_info_index_em(symbol="全部", indicator="全部")
+        df_all = pd.read_csv("data/fund_ranking_data.csv")
         print(f"共获取 {len(df_all)} 只债券基金")
 
 
         print(df_all.head(10))
-        # 过滤 基金类型包含"债券"且不包含"混合"
-        # df_all = df_all[df_all['基金类型'].str.contains('债券') & ~df_all['基金类型'].str.contains('混合')]
-        # 打印前 10 只基金
         
         # 数据清洗处理
         df = df_all.copy()
-        df = df[df['基金代码'].str.startswith(('00', '01', '02', '05', '06'))]  # 过滤非标准基金代码
-        df = df.dropna(subset=['近3年'])  # 必须有3年历史数据
         
-        # 数值转换
-        df['近3年'] = df['近3年'].str.replace('%', '').astype(float)
-        df['手续费'] = df['手续费'].str.replace('%', '').astype(float)
-        df['基金规模'] = df['基金规模'].apply(lambda x: float(x.split('亿元')[0]) if isinstance(x, str) else np.nan)
+        # 处理特殊字符，将 '---' 替换为 NaN
+        df = df.replace('---', np.nan)
+        df = df.replace('--', np.nan)
+        
+        # 必须有3年历史数据
+        df = df.dropna(subset=['近3年'])
+        
+        # 数值转换，处理百分比和特殊字符
+        def safe_convert_to_float(value):
+            """安全转换为浮点数，处理特殊字符"""
+            if pd.isna(value) or value == '---' or value == '--':
+                return np.nan
+            try:
+                # 移除百分比符号并转换为浮点数
+                if isinstance(value, str):
+                    value = value.replace('%', '').replace(',', '')
+                return float(value)
+            except (ValueError, TypeError):
+                return np.nan
+        
+        # 转换数值列
+        df['近3年'] = df['近3年'].apply(safe_convert_to_float)
+        df['手续费'] = df['手续费'].apply(safe_convert_to_float)
+        df['日增长率'] = df['日增长率'].apply(safe_convert_to_float)
+        
+        # 移除转换后仍为NaN的行
+        df = df.dropna(subset=['近3年', '日增长率'])
         
         # 核心指标计算
-        df = df[df['基金规模'] > 5]  # 剔除规模<5亿的基金
-        df['风险调整收益'] = df['近3年'] / (df['日增长率'].astype(float).abs() * 100)  # 简易风险调整
+        df['风险调整收益'] = df['近3年'] / (df['日增长率'].abs() * 100)  # 简易风险调整
         
         # 综合评分模型
-        df['规模评分'] = np.log(df['基金规模']) / np.log(df['基金规模'].max()) * 10
         df['收益评分'] = (df['近3年'] / df['近3年'].max()) * 40
         df['风险评分'] = (df['风险调整收益'] / df['风险调整收益'].max()) * 30
         df['费率评分'] = (1 - df['手续费'] / df['手续费'].max()) * 20
-        df['综合评分'] = df[['规模评分', '收益评分', '风险评分', '费率评分']].sum(axis=1)
+        df['综合评分'] = df[['收益评分', '风险评分', '费率评分']].sum(axis=1)
         
         # 筛选前10名
         top_10 = df.sort_values('综合评分', ascending=False).head(10)
-        return top_10[['基金代码', '基金简称', '综合评分', '近3年', '基金规模', '手续费']]
+        return top_10[['基金代码', '基金简称', '综合评分', '近3年', '手续费']]
     
     except Exception as e:
         print(f"数据获取失败: {str(e)}")
@@ -288,11 +313,13 @@ def scheduled_task():
 # ===================== 主程序 =====================
 if __name__ == "__main__":
     import os
-
-    get_data()
+    
+    # 如果data/fund_ranking_data.csv不存在，则获取数据
+    if not os.path.exists("data/fund_ranking_data.csv"):
+        get_data()
     
     # 立即执行一次
-    # scheduled_task()
+    scheduled_task()
     
     # 设置定时执行 (每月第一个交易日)
     # schedule.every().monday.at("09:30").do(scheduled_task)  # 实际中应使用交易日历

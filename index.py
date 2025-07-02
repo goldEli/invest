@@ -191,8 +191,6 @@ def screen_bond_funds():
         print(f"共获取 {len(df_all)} 只债券基金")
 
 
-        print(df_all.head(10))
-        
         # 数据清洗处理
         df = df_all.copy()
         
@@ -219,13 +217,32 @@ def screen_bond_funds():
         # 转换数值列
         df['近3年'] = df['近3年'].apply(safe_convert_to_float)
         df['手续费'] = df['手续费'].apply(safe_convert_to_float)
-        df['日增长率'] = df['日增长率'].apply(safe_convert_to_float)
+        
+        # 转换其他可能的时间段收益率列
+        time_periods = ['近1年', '近6月', '近3月', '近1月', '近1周']
+        for col in time_periods:
+            if col in df.columns:
+                df[col] = df[col].apply(safe_convert_to_float)
         
         # 移除转换后仍为NaN的行
-        df = df.dropna(subset=['近3年', '日增长率'])
+        df = df.dropna(subset=['近3年'])
         
-        # 核心指标计算
-        df['风险调整收益'] = df['近3年'] / (df['日增长率'].abs() * 100)  # 简易风险调整
+        # 核心指标计算 - 使用更合理的风险指标
+        # 方法1：如果有多个时间段的收益率数据，计算波动率
+        volatility_columns = ['近1年', '近6月', '近3月', '近1月']
+        available_volatility_cols = [col for col in volatility_columns if col in df.columns]
+        
+        print(f"可用的波动率计算列: {available_volatility_cols}")
+        
+        if len(available_volatility_cols) >= 2:
+            # 计算收益率的标准差作为波动率
+            df['波动率'] = df[available_volatility_cols].std(axis=1)
+            df['风险调整收益'] = df['近3年'] / (df['波动率'] + 0.01)  # 加0.01避免除零
+            print("使用波动率计算风险调整收益")
+        else:
+            # 方法2：使用手续费作为风险代理指标（费率越高，风险相对越高）
+            df['风险调整收益'] = df['近3年'] / (df['手续费'] + 1)  # 加1避免除零
+            print("使用手续费作为风险代理指标计算风险调整收益")
         
         # 综合评分模型
         df['收益评分'] = (df['近3年'] / df['近3年'].max()) * 40
@@ -291,24 +308,24 @@ def scheduled_task():
     print(top_funds[['基金代码', '基金简称', '综合评分']])
     
     # 步骤2: 执行定投
-    report, summary = execute_investment(top_funds)
+    # report, summary = execute_investment(top_funds)
     
     # 步骤3: 发送报告
-    report_content = "基金定投执行详情:\n\n"
-    for item in report:
-        report_content += f"{item['基金代码']} {item['基金名称']}: {item['投资金额']}元 (费率:{item['费率']}%)\n"
+    # report_content = "基金定投执行详情:\n\n"
+    # for item in report:
+    #     report_content += f"{item['基金代码']} {item['基金名称']}: {item['投资金额']}元 (费率:{item['费率']}%)\n"
     
-    full_content = summary + "\n\n" + report_content
+    # full_content = summary + "\n\n" + report_content
     # send_email("债券基金定投执行报告", full_content)
-    print("债券基金定投执行报告", full_content)
+    # print("债券基金定投执行报告", full_content)
     
-    # 保存历史记录
-    history_file = "bond_fund_investment_history.csv"
-    history_df = pd.DataFrame(report)
-    history_df['定投日期'] = datetime.now().strftime("%Y-%m-%d")
-    history_df.to_csv(history_file, mode='a', header=not os.path.exists(history_file), index=False)
+    # # 保存历史记录
+    # history_file = "bond_fund_investment_history.csv"
+    # history_df = pd.DataFrame(report)
+    # history_df['定投日期'] = datetime.now().strftime("%Y-%m-%d")
+    # history_df.to_csv(history_file, mode='a', header=not os.path.exists(history_file), index=False)
     
-    print(f"任务完成! 报告已发送并保存至{history_file}")
+    # print(f"任务完成! 报告已发送并保存至{history_file}")
 
 # ===================== 主程序 =====================
 if __name__ == "__main__":
